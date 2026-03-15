@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
 """
-fetch_data.py — Market Cockpit data fetcher
-Uses yf.Ticker().history() which always returns a flat DataFrame.
-Writes data/snapshot.json for the dashboard to load.
+fetch_data.py — Clement Wong data fetcher
+Pulls EOD/prev-close data from Yahoo Finance via yfinance and writes data/snapshot.json
+Run: python scripts/fetch_data.py
 """
 
-import json, math
+import json
+import math
+import sys
 from datetime import datetime, timezone
 import pytz
+
 import yfinance as yf
 
-# ── INSTRUMENTS ──────────────────────────────────────────────────────────────
-
+# ─── INSTRUMENT REGISTRY ────────────────────────────────────────────────────
 GROUPS = [
     {
-        "id": "futures", "title": "US Index Futures",
-        "section": "macro", "col0": "Contract",
+        "id": "futures",
+        "title": "US Index Futures",
+        "section": "macro",
+        "col0": "Contract",
         "instruments": [
             {"ticker": "ES=F",  "label": "ES=F · S&P 500 Futures"},
             {"ticker": "NQ=F",  "label": "NQ=F · Nasdaq 100 Futures"},
@@ -24,18 +28,22 @@ GROUPS = [
         ],
     },
     {
-        "id": "vix_dollar", "title": "Volatility & Dollar",
-        "section": "macro", "col0": "Instrument",
+        "id": "vix_dollar",
+        "title": "Volatility & Dollar",
+        "section": "macro",
+        "col0": "Instrument",
         "instruments": [
-            {"ticker": "^VIX",     "label": "VIX · CBOE Volatility Index"},
-            {"ticker": "^VVIX",    "label": "VVIX · Vol of Vol Index"},
+            {"ticker": "^VIX",  "label": "VIX · CBOE Volatility Index"},
+            {"ticker": "^VVIX", "label": "VVIX · Vol of Vol Index"},
             {"ticker": "DX-Y.NYB", "label": "DXY · US Dollar Index"},
-            {"ticker": "UUP",      "label": "UUP · Invesco Dollar ETF"},
+            {"ticker": "UUP",   "label": "UUP · Invesco Dollar ETF"},
         ],
     },
     {
-        "id": "crypto", "title": "Crypto",
-        "section": "macro", "col0": "Asset",
+        "id": "crypto",
+        "title": "Crypto",
+        "section": "macro",
+        "col0": "Asset",
         "instruments": [
             {"ticker": "BTC-USD", "label": "BTC-USD · Bitcoin"},
             {"ticker": "ETH-USD", "label": "ETH-USD · Ethereum"},
@@ -45,8 +53,10 @@ GROUPS = [
         ],
     },
     {
-        "id": "metals", "title": "Precious & Base Metals",
-        "section": "macro", "col0": "Metal",
+        "id": "metals",
+        "title": "Precious & Base Metals",
+        "section": "macro",
+        "col0": "Metal",
         "instruments": [
             {"ticker": "GC=F", "label": "GC=F · Gold Futures"},
             {"ticker": "SI=F", "label": "SI=F · Silver Futures"},
@@ -56,8 +66,10 @@ GROUPS = [
         ],
     },
     {
-        "id": "energy", "title": "Energy Commodities",
-        "section": "macro", "col0": "Commodity",
+        "id": "energy",
+        "title": "Energy Commodities",
+        "section": "macro",
+        "col0": "Commodity",
         "instruments": [
             {"ticker": "CL=F", "label": "CL=F · WTI Crude Oil"},
             {"ticker": "BZ=F", "label": "BZ=F · Brent Crude Oil"},
@@ -66,293 +78,522 @@ GROUPS = [
         ],
     },
     {
-        "id": "yields", "title": "US Treasury Yields",
-        "section": "macro", "col0": "Tenor", "is_yield": True,
+        "id": "yields",
+        "title": "US Treasury Yields",
+        "section": "macro",
+        "col0": "Tenor",
+        "is_yield": True,
         "instruments": [
-            {"ticker": "^IRX", "label": "3M · 3-Month T-Bill"},
-            {"ticker": "^FVX", "label": "5Y · 5-Year Note"},
-            {"ticker": "^TNX", "label": "10Y · 10-Year Note"},
-            {"ticker": "^TYX", "label": "30Y · 30-Year Bond"},
+            {"ticker": "^IRX",  "label": "3M · 3-Month T-Bill"},
+            {"ticker": "^FVX",  "label": "5Y · 5-Year Note"},
+            {"ticker": "^TNX",  "label": "10Y · 10-Year Note"},
+            {"ticker": "^TYX",  "label": "30Y · 30-Year Bond"},
         ],
     },
     {
-        "id": "global", "title": "Global Market Indices",
-        "section": "macro", "col0": "Index",
+        "id": "global",
+        "title": "Global Market Indices",
+        "section": "macro",
+        "col0": "Index",
         "instruments": [
-            {"ticker": "^GSPC",     "label": "SPX · S&P 500"},
-            {"ticker": "^HSI",      "label": "HSI · Hang Seng"},
-            {"ticker": "^N225",     "label": "N225 · Nikkei 225"},
-            {"ticker": "^GDAXI",    "label": "DAX · Germany 40"},
-            {"ticker": "^FTSE",     "label": "FTSE · UK 100"},
-            {"ticker": "^AXJO",     "label": "ASX · Australia 200"},
+            {"ticker": "^GSPC",  "label": "SPX · S&P 500"},
+            {"ticker": "^HSI",   "label": "HSI · Hang Seng"},
+            {"ticker": "^N225",  "label": "N225 · Nikkei 225"},
+            {"ticker": "^GDAXI", "label": "DAX · Germany 40"},
+            {"ticker": "^FTSE",  "label": "FTSE · UK 100"},
+            {"ticker": "^AXJO",  "label": "ASX · Australia 200"},
             {"ticker": "^STOXX50E", "label": "EURO STOXX 50"},
         ],
     },
+    # ── EQUITIES ──────────────────────────────────────────────────────────
     {
-        "id": "major_etfs", "title": "Major ETF Stats",
-        "section": "equities", "col0": "ETF", "has_trend": True,
+        "id": "major_etfs",
+        "title": "Major ETF Stats",
+        "section": "equities",
+        "col0": "ETF",
+        "has_trend": True,
         "instruments": [
-            {"ticker": "SPY", "label": "SPY · SPDR S&P 500"},
-            {"ticker": "QQQ", "label": "QQQ · Nasdaq 100"},
-            {"ticker": "IWM", "label": "IWM · Russell 2000"},
-            {"ticker": "DIA", "label": "DIA · Dow Jones"},
-            {"ticker": "VTI", "label": "VTI · Total Market"},
-            {"ticker": "EEM", "label": "EEM · Emerging Markets"},
-            {"ticker": "GLD", "label": "GLD · Gold ETF"},
-            {"ticker": "TLT", "label": "TLT · 20Y Treasury"},
-            {"ticker": "HYG", "label": "HYG · High Yield Bond"},
-            {"ticker": "LQD", "label": "LQD · IG Corp Bond"},
+            {"ticker": "SPY",  "label": "SPY · SPDR S&P 500"},
+            {"ticker": "QQQ",  "label": "QQQ · Nasdaq 100"},
+            {"ticker": "IWM",  "label": "IWM · Russell 2000"},
+            {"ticker": "DIA",  "label": "DIA · Dow Jones"},
+            {"ticker": "VTI",  "label": "VTI · Total Market"},
+            {"ticker": "EEM",  "label": "EEM · Emerging Markets"},
+            {"ticker": "GLD",  "label": "GLD · Gold ETF"},
+            {"ticker": "TLT",  "label": "TLT · 20Y Treasury"},
+            {"ticker": "HYG",  "label": "HYG · High Yield Bond"},
+            {"ticker": "LQD",  "label": "LQD · IG Corp Bond"},
         ],
     },
     {
-        "id": "sp500_sectors", "title": "S&P 500 Sub-Sector — Ranked by 1W",
-        "section": "equities", "col0": "Sector",
-        "has_trend": True, "has_rank": True, "sort_by": "1w",
+        "id": "sp500_sectors",
+        "title": "S&P 500 Sub-Sector — Ranked by 1W",
+        "section": "equities",
+        "col0": "Sector",
+        "has_trend": True,
+        "has_rank": True,
+        "sort_by": "1w",
         "instruments": [
-            {"ticker": "XLK",  "label": "XLK · Technology",       "holdings": "AAPL MSFT NVDA AVGO ORCL"},
-            {"ticker": "XLV",  "label": "XLV · Health Care",       "holdings": "UNH JNJ LLY ABBV MRK"},
-            {"ticker": "XLP",  "label": "XLP · Consumer Staples",  "holdings": "PG KO COST PM MO"},
-            {"ticker": "XLU",  "label": "XLU · Utilities",         "holdings": "NEE DUK SO D SRE"},
-            {"ticker": "XLF",  "label": "XLF · Financials",        "holdings": "JPM BAC WFC GS MS"},
-            {"ticker": "XLI",  "label": "XLI · Industrials",       "holdings": "RTX HON UPS CAT DE"},
-            {"ticker": "XLE",  "label": "XLE · Energy",            "holdings": "XOM CVX EOG COP SLB"},
-            {"ticker": "XLB",  "label": "XLB · Materials",         "holdings": "LIN APD SHW FCX NEM"},
-            {"ticker": "XLY",  "label": "XLY · Consumer Discret.", "holdings": "AMZN TSLA MCD HD BKNG"},
-            {"ticker": "XLRE", "label": "XLRE · Real Estate",      "holdings": "PLD AMT EQIX CCI SPG"},
-            {"ticker": "XLC",  "label": "XLC · Comm. Services",    "holdings": "META GOOGL NFLX DIS T"},
+            {"ticker": "XLK",  "label": "XLK · Technology",          "holdings": "AAPL MSFT NVDA AVGO ORCL"},
+            {"ticker": "XLV",  "label": "XLV · Health Care",          "holdings": "UNH JNJ LLY ABBV MRK"},
+            {"ticker": "XLP",  "label": "XLP · Consumer Staples",     "holdings": "PG KO COST PM MO"},
+            {"ticker": "XLU",  "label": "XLU · Utilities",            "holdings": "NEE DUK SO D SRE"},
+            {"ticker": "XLF",  "label": "XLF · Financials",           "holdings": "JPM BAC WFC GS MS"},
+            {"ticker": "XLI",  "label": "XLI · Industrials",          "holdings": "RTX HON UPS CAT DE"},
+            {"ticker": "XLE",  "label": "XLE · Energy",               "holdings": "XOM CVX EOG COP SLB"},
+            {"ticker": "XLB",  "label": "XLB · Materials",            "holdings": "LIN APD SHW FCX NEM"},
+            {"ticker": "XLY",  "label": "XLY · Consumer Discret.",    "holdings": "AMZN TSLA MCD HD BKNG"},
+            {"ticker": "XLRE", "label": "XLRE · Real Estate",         "holdings": "PLD AMT EQIX CCI SPG"},
+            {"ticker": "XLC",  "label": "XLC · Comm. Services",       "holdings": "META GOOGL NFLX DIS T"},
         ],
     },
     {
-        "id": "thematic", "title": "Top 10 Thematic ETFs — Ranked by 1W",
-        "section": "equities", "col0": "Theme / ETF",
-        "has_trend": True, "has_rank": True, "has_price": True,
-        "sort_by": "1w", "top_n": 10,
+        "id": "sp500_ew_sectors",
+        "title": "S&P 500 EW Sub-Sector — Ranked by 1W",
+        "section": "equities",
+        "col0": "EW Sector",
+        "has_trend": True,
+        "has_rank": True,
+        "sort_by": "1w",
         "instruments": [
-            {"ticker": "KWEB", "label": "KWEB · China Internet",   "holdings": "BABA PDD JD BIDU"},
-            {"ticker": "ARKK", "label": "ARKK · ARK Innovation",   "holdings": "TSLA COIN ROKU CRISPR"},
-            {"ticker": "GDX",  "label": "GDX · Gold Miners",       "holdings": "NEM GOLD AEM WPM"},
-            {"ticker": "SOXX", "label": "SOXX · Semiconductors",   "holdings": "NVDA AMD QCOM INTC"},
-            {"ticker": "IBB",  "label": "IBB · Biotech",           "holdings": "GILD BIIB VRTX REGN"},
-            {"ticker": "XBI",  "label": "XBI · S&P Biotech",       "holdings": "SMMT RXRX DNLI"},
-            {"ticker": "ICLN", "label": "ICLN · Clean Energy",     "holdings": "ENPH NEE BEP FSLR"},
-            {"ticker": "XHB",  "label": "XHB · Homebuilders",      "holdings": "DHI LEN NVR TOL"},
-            {"ticker": "LIT",  "label": "LIT · Lithium & Battery", "holdings": "ALB SQM LTHM LAC"},
-            {"ticker": "HACK", "label": "HACK · Cybersecurity",    "holdings": "PANW CRWD FTNT ZS"},
-            {"ticker": "SKYY", "label": "SKYY · Cloud Computing",  "holdings": "AMZN MSFT GOOGL SNOW"},
-            {"ticker": "JETS", "label": "JETS · Airlines",         "holdings": "AAL DAL UAL LUV"},
-            {"ticker": "ROBO", "label": "ROBO · Robotics & AI",    "holdings": "ISRG ABB FANUY"},
-            {"ticker": "BOTZ", "label": "BOTZ · Global Robotics",  "holdings": "NVDA ABB FANUY ISRG"},
+            {"ticker": "RSPT",  "label": "RSPT · EW Technology",       "holdings": "AAPL MSFT NVDA"},
+            {"ticker": "RSPH",  "label": "RSPH · EW Health Care",      "holdings": "UNH JNJ LLY"},
+            {"ticker": "RSPS",  "label": "RSPS · EW Cons. Staples",    "holdings": "PG KO COST"},
+            {"ticker": "RSPU",  "label": "RSPU · EW Utilities",        "holdings": "NEE DUK SO"},
+            {"ticker": "RYF",   "label": "RYF · EW Financials",        "holdings": "JPM BAC WFC"},
+            {"ticker": "RGI",   "label": "RGI · EW Industrials",       "holdings": "RTX HON UPS"},
+            {"ticker": "RYE",   "label": "RYE · EW Energy",            "holdings": "XOM CVX EOG"},
+            {"ticker": "RTM",   "label": "RTM · EW Materials",         "holdings": "LIN APD SHW"},
+            {"ticker": "RCD",   "label": "RCD · EW Cons. Discret.",    "holdings": "AMZN TSLA MCD"},
+            {"ticker": "EWRE",  "label": "EWRE · EW Real Estate",      "holdings": "PLD AMT EQIX"},
+            {"ticker": "EWCO",  "label": "EWCO · EW Comm. Services",   "holdings": "META GOOGL NFLX"},
         ],
     },
     {
-        "id": "country_etfs", "title": "Country ETFs — Top 10 by 1W",
-        "section": "equities", "col0": "Country / ETF",
-        "has_trend": True, "has_rank": True, "has_price": True,
-        "sort_by": "1w", "top_n": 10,
+        "id": "thematic",
+        "title": "Top 10 Thematic Sectors — Ranked by 1W",
+        "section": "equities",
+        "col0": "Theme / ETF",
+        "has_trend": True,
+        "has_rank": True,
+        "has_price": True,
+        "sort_by": "1w",
+        "top_n": 10,
         "instruments": [
-            {"ticker": "MCHI", "label": "MCHI · China",      "holdings": "TENCENT BABA MEITUAN"},
-            {"ticker": "EWG",  "label": "EWG · Germany",     "holdings": "SAP SIE DTE"},
-            {"ticker": "EWJ",  "label": "EWJ · Japan",       "holdings": "SONY TM 7203"},
-            {"ticker": "EWA",  "label": "EWA · Australia",   "holdings": "BHP RIO CSL"},
-            {"ticker": "EWC",  "label": "EWC · Canada",      "holdings": "RY TD ENB"},
-            {"ticker": "EWY",  "label": "EWY · South Korea", "holdings": "SAMSUNG SK HYUNDAI"},
-            {"ticker": "EWT",  "label": "EWT · Taiwan",      "holdings": "TSMC MEDI UMC"},
-            {"ticker": "EWZ",  "label": "EWZ · Brazil",      "holdings": "VALE PETR ITUB"},
-            {"ticker": "EWU",  "label": "EWU · UK",          "holdings": "SHEL AZN HSBC"},
-            {"ticker": "EWI",  "label": "EWI · Italy",       "holdings": "ENI ISP UCG"},
-            {"ticker": "EWL",  "label": "EWL · Switzerland", "holdings": "NESN ROG NOVN"},
-            {"ticker": "EWS",  "label": "EWS · Singapore",   "holdings": "DBS OCBC UOB"},
-            {"ticker": "EWH",  "label": "EWH · Hong Kong",   "holdings": "AIA HSBC MTR"},
-            {"ticker": "INDA", "label": "INDA · India",      "holdings": "RELIANCE INFY TCS"},
+            {"ticker": "KWEB",  "label": "KWEB · China Internet",      "holdings": "BABA PDD JD BIDU TCEHY"},
+            {"ticker": "CQQQ",  "label": "CQQQ · China Tech",          "holdings": "BABA TCEHY BIDU"},
+            {"ticker": "ARKK",  "label": "ARKK · ARK Innovation",      "holdings": "TSLA CRISPR ROKU COIN"},
+            {"ticker": "GDX",   "label": "GDX · Gold Miners",          "holdings": "NEM GOLD AEM WPM AGI"},
+            {"ticker": "SOXX",  "label": "SOXX · Semiconductors",      "holdings": "NVDA AMD QCOM INTC AMAT"},
+            {"ticker": "IBB",   "label": "IBB · Biotech",              "holdings": "GILD BIIB VRTX REGN MRNA"},
+            {"ticker": "XBI",   "label": "XBI · S&P Biotech",          "holdings": "SMMT RXRX DNLI SAGE"},
+            {"ticker": "ICLN",  "label": "ICLN · Clean Energy",        "holdings": "ENPH NEE BEP FSLR"},
+            {"ticker": "XHB",   "label": "XHB · Homebuilders",         "holdings": "DHI LEN NVR TOL PHM"},
+            {"ticker": "LIT",   "label": "LIT · Lithium & Battery",    "holdings": "ALB SQM LTHM LAC"},
+            {"ticker": "ROBO",  "label": "ROBO · Robotics & AI",       "holdings": "ISRG ABB FANUY IRBT"},
+            {"ticker": "BOTZ",  "label": "BOTZ · Global Robotics",     "holdings": "NVDA ABB FANUY ISRG"},
+            {"ticker": "HACK",  "label": "HACK · Cybersecurity",       "holdings": "PANW CRWD FTNT ZS"},
+            {"ticker": "SKYY",  "label": "SKYY · Cloud Computing",     "holdings": "AMZN MSFT GOOGL SNOW"},
+            {"ticker": "JETS",  "label": "JETS · Airlines",            "holdings": "AAL DAL UAL LUV"},
+        ],
+    },
+    {
+        "id": "country_etfs",
+        "title": "Country ETFs — Top 10 by 1W Performance",
+        "section": "equities",
+        "col0": "Country / ETF",
+        "has_trend": True,
+        "has_rank": True,
+        "has_price": True,
+        "sort_by": "1w",
+        "top_n": 10,
+        "instruments": [
+            {"ticker": "MCHI", "label": "MCHI · China",         "holdings": "TENCENT BABA MEITUAN"},
+            {"ticker": "EWG",  "label": "EWG · Germany",        "holdings": "SAP SIE DTE"},
+            {"ticker": "EWJ",  "label": "EWJ · Japan",          "holdings": "SONY TM 7203"},
+            {"ticker": "EWA",  "label": "EWA · Australia",      "holdings": "BHP RIO CSL"},
+            {"ticker": "EWC",  "label": "EWC · Canada",         "holdings": "RY TD ENB"},
+            {"ticker": "EWY",  "label": "EWY · South Korea",    "holdings": "SAMSUNG SK HYUNDAI"},
+            {"ticker": "EWT",  "label": "EWT · Taiwan",         "holdings": "TSMC MEDI UMC"},
+            {"ticker": "EWZ",  "label": "EWZ · Brazil",         "holdings": "VALE PETR ITUB"},
+            {"ticker": "EWU",  "label": "EWU · UK",             "holdings": "SHEL AZN HSBC"},
+            {"ticker": "EWI",  "label": "EWI · Italy",          "holdings": "ENI ISP UCG"},
+            {"ticker": "EWL",  "label": "EWL · Switzerland",    "holdings": "NESN ROG NOVN"},
+            {"ticker": "EWP",  "label": "EWP · Spain",          "holdings": "ITX SAN BBVA"},
+            {"ticker": "EWQ",  "label": "EWQ · France",         "holdings": "LVMH TTE BNP"},
+            {"ticker": "EWS",  "label": "EWS · Singapore",      "holdings": "DBS OCBC UOB"},
+            {"ticker": "EWH",  "label": "EWH · Hong Kong",      "holdings": "AIA HSBC MTR"},
+            {"ticker": "INDA", "label": "INDA · India",         "holdings": "RELIANCE INFY TCS"},
+            {"ticker": "EWW",  "label": "EWW · Mexico",         "holdings": "AMXL GFNORTEO FEMSAUBD"},
         ],
     },
 ]
 
-# ── HELPERS ──────────────────────────────────────────────────────────────────
+# Breadth/sentiment tickers (fetched separately)
+BREADTH_TICKERS = {
+    "vix":      "^VIX",
+    "sp500":    "^GSPC",
+    "put_call": None,   # Not available via yfinance – will be placeholder
+}
 
-def pct_str(v, d=2):
-    if v is None: return None
-    return f"{'+' if v>=0 else ''}{v:.{d}f}%"
+# ─── HELPERS ────────────────────────────────────────────────────────────────
 
-def price_str(v, is_yield=False):
-    if v is None: return None
-    if is_yield: return f"{v:.3f}%"
-    if v >= 1000: return f"{v:,.2f}"
-    return f"{v:.4g}"
-
-def trend_arrow(w):
-    if w is None: return "→"
-    return "↗" if w > 1 else ("↘" if w < -1 else "→")
-
-def bars_array(closes):
-    if not closes or len(closes) < 2: return [0,0,0,0,0]
-    r = closes[-6:]
-    b = [1 if r[i]>r[i-1] else (-1 if r[i]<r[i-1] else 0) for i in range(1,len(r))]
-    while len(b) < 5: b.insert(0,0)
-    return b[-5:]
-
-# ── CORE FETCH ───────────────────────────────────────────────────────────────
-
-def fetch_ticker(tk, is_yield=False):
-    """
-    yf.Ticker().history() always returns a flat DataFrame — no MultiIndex ever.
-    This is the most reliable yfinance method.
-    """
+def safe_float(v):
     try:
-        hist = yf.Ticker(tk).history(period="1y", interval="1d")
+        f = float(v)
+        return None if (math.isnan(f) or math.isinf(f)) else f
+    except Exception:
+        return None
+
+
+def pct_str(val, decimals=2):
+    if val is None:
+        return None
+    sign = "+" if val >= 0 else ""
+    return f"{sign}{val:.{decimals}f}%"
+
+
+def price_str(val, is_yield=False):
+    if val is None:
+        return None
+    if is_yield:
+        return f"{val:.3f}%"
+    if val >= 1000:
+        return f"{val:,.2f}"
+    return f"{val:.4g}"
+
+
+def trend_arrow(pct_1w):
+    if pct_1w is None:
+        return "→"
+    if pct_1w > 1:
+        return "↗"
+    if pct_1w < -1:
+        return "↘"
+    return "→"
+
+
+def bars_array(history_closes):
+    """Return list of 5 ints: +1 / -1 / 0 for the last 5 daily candles."""
+    if not history_closes or len(history_closes) < 2:
+        return [0, 0, 0, 0, 0]
+    closes = list(history_closes)[-6:]   # up to 6 values → 5 diffs
+    bars = []
+    for i in range(1, len(closes)):
+        diff = closes[i] - closes[i - 1]
+        bars.append(1 if diff > 0 else (-1 if diff < 0 else 0))
+    # pad / trim to exactly 5
+    while len(bars) < 5:
+        bars.insert(0, 0)
+    return bars[-5:]
+
+
+# ─── FETCH ──────────────────────────────────────────────────────────────────
+
+def fetch_single(tk, is_yield=False):
+    """Fetch one ticker individually — most reliable approach for 1W% and YTD%."""
+    try:
+        # Download 1 year of daily history for this ticker only
+        hist = yf.download(
+            tk,
+            period="1y",
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+        )
+
+        # Extract close series — single-ticker download has flat columns
         if hist is None or hist.empty:
-            raise ValueError("empty")
+            raise ValueError("Empty history")
 
-        # Always flat columns with .history()
-        closes = [float(v) for v in hist["Close"].dropna().tolist()]
-        idx    = hist["Close"].dropna().index.tolist()
+        # Handle both flat and MultiIndex columns
+        if isinstance(hist.columns, pd.MultiIndex):
+            closes_series = hist["Close"][tk].dropna()
+        else:
+            closes_series = hist["Close"].dropna()
 
-        if len(closes) < 6:
-            raise ValueError("insufficient data")
+        closes     = closes_series.tolist()
+        closes_idx = closes_series.index.tolist()
 
-        price = closes[-1]
-        prev  = closes[-2]
+        if not closes:
+            raise ValueError("No close data")
 
-        chg_1d = (price - prev) / prev * 100
-        chg_1w = (price - closes[-6]) / closes[-6] * 100
+        price     = closes[-1]
+        prev_close = closes[-2] if len(closes) >= 2 else None
 
-        # YTD
-        year = datetime.now().year
-        ytd  = [(d,v) for d,v in zip(idx,closes) if d.year == year]
-        chg_ytd = (price - ytd[0][1]) / ytd[0][1] * 100 if ytd else None
+        # 1D change
+        chg_1d = (price - prev_close) / prev_close * 100 if prev_close else None
+
+        # 1W — 5 trading days ago
+        chg_1w = None
+        if len(closes) >= 6:
+            ref_1w = closes[-6]
+            if ref_1w:
+                chg_1w = (price - ref_1w) / ref_1w * 100
+
+        # YTD — first trading day of current year
+        chg_ytd = None
+        current_year = datetime.now().year
+        ytd_pairs = [(dt, v) for dt, v in zip(closes_idx, closes) if dt.year == current_year]
+        if ytd_pairs:
+            ytd_ref = ytd_pairs[0][1]
+            if ytd_ref:
+                chg_ytd = (price - ytd_ref) / ytd_ref * 100
 
         # 52W high
-        hi52      = max(closes)
-        chg_52w   = (price - hi52) / hi52 * 100
+        week52_high = max(closes) if closes else None
+        # Try fast_info for a more accurate 52W high
+        try:
+            fi = yf.Ticker(tk).fast_info
+            fh = safe_float(getattr(fi, "year_high", None))
+            if fh:
+                week52_high = fh
+        except Exception:
+            pass
+        chg_52w_hi = (price - week52_high) / week52_high * 100 if week52_high else None
 
-        # Yield 1D in bps
-        if is_yield:
-            bps = (chg_1d / 100) * (price / 100) * 10000
-            chg_1d_str = f"{'+' if bps>=0 else ''}{bps:.1f}bps"
-        else:
-            chg_1d_str = pct_str(chg_1d)
+        bars = bars_array(closes)
 
         return {
-            "ok": True,
-            "price":     price_str(price, is_yield),
             "price_raw": price,
-            "chg_1d":    chg_1d_str,
             "chg_1d_raw": chg_1d,
-            "chg_1w":    pct_str(chg_1w),
             "chg_1w_raw": chg_1w,
-            "chg_52w_hi":  pct_str(chg_52w),
-            "chg_52w_hi_raw": chg_52w,
-            "chg_ytd":   pct_str(chg_ytd),
+            "chg_52w_hi_raw": chg_52w_hi,
             "chg_ytd_raw": chg_ytd,
-            "bars":      bars_array(closes),
-            "trend":     trend_arrow(chg_1w),
+            "closes": closes,
+            "bars": bars,
+            "ok": True,
         }
+
     except Exception as e:
-        print(f"    FAIL {tk}: {e}")
+        print(f"      fetch_single error for {tk}: {e}")
         return {"ok": False}
 
-def blank_row(tk, label, holdings):
-    return {
-        "ticker": tk, "label": label, "holdings": holdings,
-        "price": None, "price_raw": None,
-        "chg_1d": None, "chg_1d_raw": None,
-        "chg_1w": None, "chg_1w_raw": None,
-        "chg_52w_hi": None, "chg_52w_hi_raw": None,
-        "chg_ytd": None, "chg_ytd_raw": None,
-        "bars": [0,0,0,0,0], "trend": "→",
-    }
 
-def fetch_group(group):
+def fetch_instruments(instruments, is_yield=False):
+    import pandas as pd  # ensure available
+
+    tickers = [i["ticker"] for i in instruments]
+    print(f"  Fetching {len(tickers)} tickers individually...")
+
     rows = []
-    for instr in group["instruments"]:
-        tk, label, holdings = instr["ticker"], instr["label"], instr.get("holdings","")
-        r = fetch_ticker(tk, is_yield=group.get("is_yield", False))
-        if r["ok"]:
-            row = {"ticker": tk, "label": label, "holdings": holdings}
-            row.update({k:v for k,v in r.items() if k != "ok"})
-            print(f"    OK  {tk:12s} price={r['price']:>12}  1D={str(r['chg_1d']):>10}  1W={str(r['chg_1w']):>10}  YTD={str(r['chg_ytd'])}")
+    for instr in instruments:
+        tk      = instr["ticker"]
+        label   = instr["label"]
+        holdings = instr.get("holdings", "")
+
+        result = fetch_single(tk, is_yield=is_yield)
+
+        if result["ok"]:
+            price      = result["price_raw"]
+            chg_1d     = result["chg_1d_raw"]
+            chg_1w     = result["chg_1w_raw"]
+            chg_52w_hi = result["chg_52w_hi_raw"]
+            chg_ytd    = result["chg_ytd_raw"]
+            bars       = result["bars"]
+
+            row = {
+                "ticker": tk,
+                "label": label,
+                "holdings": holdings,
+                "price": price_str(price, is_yield),
+                "price_raw": price,
+                "chg_1d": pct_str(chg_1d),
+                "chg_1d_raw": chg_1d,
+                "chg_1w": pct_str(chg_1w),
+                "chg_1w_raw": chg_1w,
+                "chg_52w_hi": pct_str(chg_52w_hi),
+                "chg_52w_hi_raw": chg_52w_hi,
+                "chg_ytd": pct_str(chg_ytd),
+                "chg_ytd_raw": chg_ytd,
+                "bars": bars,
+                "trend": trend_arrow(chg_1w),
+            }
+
+            # For yields: express 1D change in basis points
+            if is_yield and chg_1d is not None and price:
+                bps = chg_1d / 100 * (price / 100) * 10000
+                row["chg_1d"] = f"{'+' if bps >= 0 else ''}{bps:.1f}bps"
+
+            rows.append(row)
+            print(f"    ✓ {tk}: price={price_str(price, is_yield)}  1D={pct_str(chg_1d)}  1W={pct_str(chg_1w)}  YTD={pct_str(chg_ytd)}")
+
         else:
-            row = blank_row(tk, label, holdings)
-        rows.append(row)
+            print(f"    ✗ {tk}: failed")
+            rows.append({
+                "ticker": tk, "label": label, "holdings": holdings,
+                "price": None, "price_raw": None,
+                "chg_1d": None, "chg_1d_raw": None,
+                "chg_1w": None, "chg_1w_raw": None,
+                "chg_52w_hi": None, "chg_52w_hi_raw": None,
+                "chg_ytd": None, "chg_ytd_raw": None,
+                "bars": [0, 0, 0, 0, 0], "trend": "→",
+            })
+
     return rows
 
+
 def fetch_breadth():
-    print("  [breadth]")
-    try:
-        vix = float(yf.Ticker("^VIX").history(period="5d")["Close"].dropna().iloc[-1])
-    except: vix = None
+    """Fetch VIX and S&P 500 data to build sentiment panel."""
+    print("  Fetching breadth data...")
+    cards = []
 
     try:
-        sp  = [float(v) for v in yf.Ticker("^GSPC").history(period="1y")["Close"].dropna().tolist()]
-        sp_price, sp_prev = sp[-1], sp[-2]
-        sp_hi, sp_lo = max(sp), min(sp)
-    except: sp_price = sp_prev = sp_hi = sp_lo = None
+        vix = yf.Ticker("^VIX")
+        vix_info = vix.fast_info
+        vix_price = safe_float(getattr(vix_info, "last_price", None))
+    except Exception:
+        vix_price = None
 
-    up = 0
-    for stk in ["XLK","XLV","XLP","XLU","XLF","XLI","XLE","XLB","XLY","XLRE","XLC"]:
-        try:
-            c = [float(v) for v in yf.Ticker(stk).history(period="5d")["Close"].dropna().tolist()]
-            if len(c)>=2 and c[-1]>c[-2]: up+=1
-        except: pass
+    try:
+        sp = yf.Ticker("^GSPC")
+        sp_info = sp.fast_info
+        sp_price = safe_float(getattr(sp_info, "last_price", None))
+        sp_prev = safe_float(getattr(sp_info, "previous_close", None))
+        sp_year_high = safe_float(getattr(sp_info, "year_high", None))
+        sp_year_low = safe_float(getattr(sp_info, "year_low", None))
+    except Exception:
+        sp_price = sp_prev = sp_year_high = sp_year_low = None
 
-    total = 11
-    rng_pct = 50
-    if sp_hi and sp_lo and sp_price:
-        r = sp_hi - sp_lo
-        if r > 0: rng_pct = round((sp_price - sp_lo) / r * 100)
+    # Pull S&P 500 component proxies for breadth approximation
+    # We use sector ETF advances/declines as proxy for breadth
+    sector_tickers = ["XLK","XLV","XLP","XLU","XLF","XLI","XLE","XLB","XLY","XLRE","XLC"]
+    up_sectors = 0
+    try:
+        for tk in sector_tickers:
+            t = yf.Ticker(tk)
+            fi = t.fast_info
+            pr = safe_float(getattr(fi, "last_price", None))
+            pc = safe_float(getattr(fi, "previous_close", None))
+            if pr and pc and pr > pc:
+                up_sectors += 1
+    except Exception:
+        up_sectors = 5
 
-    fg = 50
-    if vix:
-        if vix<12: fg=80
-        elif vix<16: fg=65
-        elif vix<20: fg=50
-        elif vix<25: fg=35
-        elif vix<30: fg=20
-        else: fg=10
+    adv_pct = round(up_sectors / len(sector_tickers) * 100)
+    dec_pct = 100 - adv_pct
 
-    return [
-        {"label":"Advancing Sectors",      "value":f"{up}/{total}",                         "dir":"up" if up>=6 else "dn", "sub":"S&P 500 GICS sectors", "pct":round(up/total*100)},
-        {"label":"VIX Volatility",         "value":f"{vix:.2f}" if vix else "—",            "dir":"dn" if (vix or 20)>20 else "up", "sub":"Elevated above 20", "pct":min(int(vix or 20),100)},
-        {"label":"Fear & Greed Index",     "value":str(fg),                                  "dir":"up" if fg>50 else "dn", "sub":"0=Fear  100=Greed", "pct":fg},
-        {"label":"S&P 52W Range Pos.",     "value":f"{rng_pct}%",                            "dir":"up" if rng_pct>50 else "dn", "sub":"Position in 52W range", "pct":rng_pct},
-        {"label":"S&P 500",                "value":f"{sp_price:,.2f}" if sp_price else "—",  "dir":"up" if (sp_price and sp_prev and sp_price>sp_prev) else "dn", "sub":"Last close", "pct":50},
-        {"label":"S&P 52W High",           "value":f"{sp_hi:,.2f}" if sp_hi else "—",        "dir":"up", "sub":"52-week high", "pct":90},
-        {"label":"S&P 52W Low",            "value":f"{sp_lo:,.2f}" if sp_lo else "—",        "dir":"dn", "sub":"52-week low",  "pct":10},
-        {"label":"Declining Sectors",      "value":f"{total-up}/{total}",                    "dir":"dn" if up<6 else "up", "sub":"S&P 500 GICS sectors", "pct":round((total-up)/total*100)},
-        {"label":"Volatility Regime",      "value":"HIGH" if (vix or 0)>25 else ("MED" if (vix or 0)>18 else "LOW"), "dir":"dn" if (vix or 0)>20 else "up", "sub":f"VIX: {vix:.1f}" if vix else "—", "pct":min(int((vix or 20)*2),100)},
-        {"label":"Above 50MA (proxy)",     "value":f"{min(80,max(20,rng_pct+5))}%",          "dir":"up" if rng_pct>45 else "dn", "sub":"S&P sector proxy", "pct":min(80,max(20,rng_pct+5))},
+    # VIX level → fear/greed proxy
+    fear_greed = 50
+    if vix_price:
+        if vix_price < 12:   fear_greed = 80
+        elif vix_price < 16: fear_greed = 65
+        elif vix_price < 20: fear_greed = 50
+        elif vix_price < 25: fear_greed = 35
+        elif vix_price < 30: fear_greed = 20
+        else:                fear_greed = 10
+
+    # S&P position within 52W range
+    sp_range_pct = 50
+    if sp_year_high and sp_year_low and sp_price:
+        rng = sp_year_high - sp_year_low
+        if rng > 0:
+            sp_range_pct = round((sp_price - sp_year_low) / rng * 100)
+
+    above_50ma_proxy = max(20, min(80, sp_range_pct + 5))
+
+    cards = [
+        {"label": "% Sectors Above 50MA", "value": f"{above_50ma_proxy}%",
+         "dir": "up" if above_50ma_proxy > 50 else "dn",
+         "sub": "S&P 500 sector proxy", "pct": above_50ma_proxy},
+
+        {"label": "Advancing Sectors (1D)", "value": f"{up_sectors}/{len(sector_tickers)}",
+         "dir": "up" if up_sectors >= 6 else "dn",
+         "sub": "S&P 500 GICS sectors", "pct": adv_pct},
+
+        {"label": "VIX · CBOE Volatility", "value": f"{vix_price:.2f}" if vix_price else "—",
+         "dir": "dn" if (vix_price or 20) > 20 else "up",
+         "sub": "Elevated > 20", "pct": min(int(vix_price or 20), 100) if vix_price else 20},
+
+        {"label": "Fear & Greed (VIX proxy)", "value": str(fear_greed),
+         "dir": "up" if fear_greed > 50 else "dn",
+         "sub": "0=Extreme Fear, 100=Greed", "pct": fear_greed},
+
+        {"label": "S&P 52W Range Position", "value": f"{sp_range_pct}%",
+         "dir": "up" if sp_range_pct > 50 else "dn",
+         "sub": "% between 52W Lo→Hi", "pct": sp_range_pct},
+
+        {"label": "S&P 500 Price", "value": f"{sp_price:,.2f}" if sp_price else "—",
+         "dir": "up" if (sp_price and sp_prev and sp_price > sp_prev) else "dn",
+         "sub": "Prev close basis", "pct": 50},
+
+        {"label": "S&P 52W High", "value": f"{sp_year_high:,.2f}" if sp_year_high else "—",
+         "dir": "up", "sub": "52-Week High", "pct": 90},
+
+        {"label": "S&P 52W Low", "value": f"{sp_year_low:,.2f}" if sp_year_low else "—",
+         "dir": "dn", "sub": "52-Week Low", "pct": 10},
+
+        {"label": "Declining Sectors (1D)", "value": f"{len(sector_tickers)-up_sectors}/{len(sector_tickers)}",
+         "dir": "dn" if up_sectors < 6 else "up",
+         "sub": "S&P 500 GICS sectors", "pct": dec_pct},
+
+        {"label": "Volatility Regime", "value": "HIGH" if (vix_price or 0) > 25 else ("MED" if (vix_price or 0) > 18 else "LOW"),
+         "dir": "dn" if (vix_price or 0) > 20 else "up",
+         "sub": f"VIX: {vix_price:.1f}" if vix_price else "—", "pct": min(int((vix_price or 20) * 2), 100)},
     ]
 
-# ── MAIN ─────────────────────────────────────────────────────────────────────
+    return cards
+
+
+# ─── MAIN ───────────────────────────────────────────────────────────────────
 
 def main():
-    sgt = pytz.timezone("Asia/Singapore")
-    ts  = datetime.now(sgt).strftime("%Y-%m-%d %H:%M SGT")
-    print(f"\n{'='*60}\n  Market Cockpit -- Data Fetch\n  {ts}\n{'='*60}\n")
+    hkt = pytz.timezone("Asia/Singapore")
+    now_hkt = datetime.now(hkt)
+    timestamp = now_hkt.strftime("%Y-%m-%d %H:%M SGT")
+    print(f"\n{'='*60}")
+    print(f"  Clement Wong — Data Fetch")
+    print(f"  {timestamp}")
+    print(f"{'='*60}\n")
 
-    snap = {"updated": ts, "updated_iso": datetime.now(timezone.utc).isoformat(), "groups": [], "breadth": []}
+    snapshot = {
+        "updated": timestamp,
+        "updated_iso": datetime.now(timezone.utc).isoformat(),
+        "groups": [],
+        "breadth": [],
+    }
 
-    for g in GROUPS:
-        print(f"\n[{g['id']}] {g['title']}")
-        rows = fetch_group(g)
-        if g.get("sort_by") == "1w":
+    for group in GROUPS:
+        print(f"\n[{group['id']}] {group['title']}")
+        rows = fetch_instruments(
+            group["instruments"],
+            is_yield=group.get("is_yield", False),
+        )
+
+        # Sort if needed
+        if group.get("sort_by") == "1w":
             rows.sort(key=lambda r: r.get("chg_1w_raw") or -999, reverse=True)
-        if g.get("top_n"):
-            rows = rows[:g["top_n"]]
-        snap["groups"].append({
-            "id": g["id"], "title": g["title"], "section": g["section"],
-            "col0": g["col0"], "has_trend": g.get("has_trend",False),
-            "has_rank": g.get("has_rank",False), "has_price": g.get("has_price",False),
-            "is_yield": g.get("is_yield",False), "rows": rows,
+
+        # Trim to top_n
+        if group.get("top_n"):
+            rows = rows[:group["top_n"]]
+
+        snapshot["groups"].append({
+            "id": group["id"],
+            "title": group["title"],
+            "section": group["section"],
+            "col0": group["col0"],
+            "has_trend": group.get("has_trend", False),
+            "has_rank": group.get("has_rank", False),
+            "has_price": group.get("has_price", False),
+            "is_yield": group.get("is_yield", False),
+            "rows": rows,
         })
 
-    snap["breadth"] = fetch_breadth()
+    print("\n[breadth] Sentiment & Internals")
+    snapshot["breadth"] = fetch_breadth()
 
-    with open("data/snapshot.json","w") as f:
-        json.dump(snap, f, indent=2)
+    out_path = "data/snapshot.json"
+    with open(out_path, "w") as f:
+        json.dump(snapshot, f, indent=2)
 
-    total = sum(len(g["rows"]) for g in snap["groups"])
-    print(f"\nDone -- {ts}  |  {len(snap['groups'])} groups  |  {total} instruments\n")
+    print(f"\n✓ Written {out_path}")
+    print(f"  Groups: {len(snapshot['groups'])}")
+    total_rows = sum(len(g['rows']) for g in snapshot['groups'])
+    print(f"  Instruments: {total_rows}")
+    print(f"  Breadth cards: {len(snapshot['breadth'])}")
+    print(f"\nDone — {timestamp}\n")
+
 
 if __name__ == "__main__":
     main()
