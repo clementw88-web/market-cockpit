@@ -37,20 +37,33 @@ body{background:var(--bg);color:var(--text);font-family:'IBM Plex Mono',monospac
 .sec-info{padding:14px 20px;flex:1}
 .sec-title{font-family:'Rajdhani',sans-serif;font-size:19px;font-weight:700;color:var(--head);letter-spacing:.1em;text-transform:uppercase}
 .sec-sub{font-size:9px;color:var(--text3);letter-spacing:.14em;margin-top:2px;text-transform:uppercase}
-/* 2-col macro grid */
-.macro-grid{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border)}
-.macro-grid>.grp{border-bottom:none;border-right:1px solid var(--border)}
-.macro-grid>.grp:nth-child(even){border-right:none}
+
+/* ── 2-COL MACRO GRID ── */
+/* Each .macro-pair is a row containing exactly 2 .macro-cell columns */
+.macro-pair{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border)}
+.macro-pair:last-child{border-bottom:none}
+.macro-cell{min-width:0;border-right:1px solid var(--border)}
+.macro-cell:last-child{border-right:none}
 .macro-full{border-bottom:1px solid var(--border)}
 .macro-full:last-child{border-bottom:none}
-@media(max-width:900px){.macro-grid{grid-template-columns:1fr}.macro-grid>.grp{border-right:none;border-bottom:1px solid var(--border)}}
-/* groups */
+@media(max-width:900px){
+  .macro-pair{grid-template-columns:1fr}
+  .macro-cell{border-right:none;border-bottom:1px solid var(--border)}
+  .macro-cell:last-child{border-bottom:none}
+}
+
+/* group inside a cell — no bottom border needed, cell handles it */
+.macro-cell .grp{border-bottom:none}
+.macro-cell .grp-hdr{border-bottom:1px solid var(--border)}
+
+/* standalone groups (equities / breadth) */
 .grp{border-bottom:1px solid var(--border)}.grp:last-child{border-bottom:none}
 .grp-hdr{display:flex;align-items:center;gap:9px;padding:9px 18px;cursor:pointer;background:var(--bg2);border-bottom:1px solid var(--border);user-select:none;transition:background .15s}
 .grp-hdr:hover{background:var(--bg3)}
 .arr{color:var(--accent);font-size:9px;width:10px;transition:transform .2s}.arr.open{transform:rotate(90deg)}
 .grp-title{font-size:11px;font-weight:600;color:var(--head);letter-spacing:.1em;text-transform:uppercase}
 .grp-body{display:none;overflow-x:auto}.grp-body.open{display:block}
+
 /* tables */
 table{width:100%;border-collapse:collapse;font-size:11px}
 thead tr{background:var(--bg3);border-bottom:1px solid var(--border)}
@@ -63,6 +76,7 @@ td:not(:first-child){text-align:right}tr:last-child td{border-bottom:none}tr:hov
 .up{color:var(--green)}.dn{color:var(--red)}.neu{color:var(--text2)}.rk{color:var(--text3);font-size:10px}
 .bars{display:inline-flex;align-items:flex-end;gap:2px;height:18px;vertical-align:middle}
 .bar{width:4px;border-radius:1px 1px 0 0;min-height:2px}
+
 /* breadth */
 .brd-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:1px;background:var(--border)}
 .brd-card{background:var(--bg2);padding:14px 16px;display:flex;flex-direction:column;gap:3px}
@@ -71,6 +85,7 @@ td:not(:first-child){text-align:right}tr:last-child td{border-bottom:none}tr:hov
 .brd-val.up{color:var(--green)}.brd-val.dn{color:var(--red)}.brd-sub{font-size:10px;color:var(--text3)}
 .gauge{margin-top:4px}.g-track{height:2px;background:var(--bg3);border-radius:2px;overflow:hidden}
 .g-fill{height:100%;border-radius:2px}.g-fill.g{background:var(--green)}.g-fill.r{background:var(--red)}.g-fill.o{background:var(--gold)}
+
 /* calc */
 .calc-wrap{padding:20px}.calc-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
 @media(max-width:760px){.calc-grid{grid-template-columns:1fr}}
@@ -119,8 +134,8 @@ td:not(:first-child){text-align:right}tr:last-child td{border-bottom:none}tr:hov
 </div>
 
 <div class="quote">
-  <p>"If you Fail to Plan, You are Planning to Fail"</p>
-  <div class="quote-by">— Benjamin Franklin</div>
+  <p>"The fastest way to take a bath in the stock market or go broke is to try to prove that you are right and the market is wrong"</p>
+  <div class="quote-by">— Adam Smith</div>
 </div>
 
 <div class="status">
@@ -145,10 +160,23 @@ td:not(:first-child){text-align:right}tr:last-child td{border-bottom:none}tr:hov
         <div class="sec-sub">EOD SNAPSHOT · PREV CLOSE · RANKED BY CATEGORY</div>
       </div>
     </div>
-    <div class="macro-grid" id="macro-row1"></div>
-    <div class="macro-grid" id="macro-row2"></div>
-    <div class="macro-grid" id="macro-row3"></div>
-    <div class="macro-full"  id="macro-row4"></div>
+    <!-- Row 1: Futures | VIX/Dollar -->
+    <div class="macro-pair">
+      <div class="macro-cell" id="mc-futures"></div>
+      <div class="macro-cell" id="mc-vix_dollar"></div>
+    </div>
+    <!-- Row 2: Crypto | Metals -->
+    <div class="macro-pair">
+      <div class="macro-cell" id="mc-crypto"></div>
+      <div class="macro-cell" id="mc-metals"></div>
+    </div>
+    <!-- Row 3: Energy | Yields -->
+    <div class="macro-pair">
+      <div class="macro-cell" id="mc-energy"></div>
+      <div class="macro-cell" id="mc-yields"></div>
+    </div>
+    <!-- Row 4: Global full width -->
+    <div class="macro-full" id="mc-global"></div>
   </div>
 
   <div class="sec" id="s1">
@@ -189,14 +217,14 @@ td:not(:first-child){text-align:right}tr:last-child td{border-bottom:none}tr:hov
         <div class="cpanel">
           <div class="cpanel-title">▸ Trade Parameters</div>
           <div class="dir-btns">
-            <button class="dbtn al" id="b-long"  onclick="setDir('long')">▲ LONG</button>
-            <button class="dbtn"    id="b-short" onclick="setDir('short')">▼ SHORT</button>
+            <button class="dbtn al" id="b-long" onclick="setDir('long')">▲ LONG</button>
+            <button class="dbtn" id="b-short" onclick="setDir('short')">▼ SHORT</button>
           </div>
-          <div class="crow"><span class="clbl">Account Equity (USD)</span><input class="cinput" id="c-eq"    type="number" value="100000" oninput="calc()"></div>
-          <div class="crow"><span class="clbl">Risk per Trade (%)</span>  <input class="cinput" id="c-risk"  type="number" value="1" step="0.1" oninput="calc()"></div>
-          <div class="crow"><span class="clbl">Entry Price ($)</span>     <input class="cinput" id="c-entry" type="number" value="100" step="0.01" oninput="calc()"></div>
-          <div class="crow"><span class="clbl">Stop Loss ($)</span>        <input class="cinput" id="c-stop"  type="number" value="95" step="0.01" oninput="calc()"></div>
-          <div class="crow"><span class="clbl">Ticker (optional)</span>    <input class="cinput" id="c-tk"    type="text" placeholder="e.g. AAPL" style="font-family:'IBM Plex Mono',monospace;font-size:11px"></div>
+          <div class="crow"><span class="clbl">Account Equity (USD)</span><input class="cinput" id="c-eq" type="number" value="100000" oninput="calc()"></div>
+          <div class="crow"><span class="clbl">Risk per Trade (%)</span><input class="cinput" id="c-risk" type="number" value="1" step="0.1" oninput="calc()"></div>
+          <div class="crow"><span class="clbl">Entry Price ($)</span><input class="cinput" id="c-entry" type="number" value="100" step="0.01" oninput="calc()"></div>
+          <div class="crow"><span class="clbl">Stop Loss ($)</span><input class="cinput" id="c-stop" type="number" value="95" step="0.01" oninput="calc()"></div>
+          <div class="crow"><span class="clbl">Ticker (optional)</span><input class="cinput" id="c-tk" type="text" placeholder="e.g. AAPL" style="font-family:'IBM Plex Mono',monospace;font-size:11px"></div>
         </div>
         <div class="cpanel">
           <div class="cpanel-title">▸ Position Results</div>
@@ -281,7 +309,16 @@ function buildGroupHTML(g){
   return html;
 }
 
-const MACRO_LAYOUT={futures:'macro-row1',vix_dollar:'macro-row1',crypto:'macro-row2',metals:'macro-row2',energy:'macro-row3',yields:'macro-row3',global:'macro-row4'};
+// Map group id → target cell element id
+const MACRO_MAP = {
+  futures:    'mc-futures',
+  vix_dollar: 'mc-vix_dollar',
+  crypto:     'mc-crypto',
+  metals:     'mc-metals',
+  energy:     'mc-energy',
+  yields:     'mc-yields',
+  global:     'mc-global',
+};
 
 async function loadData(){
   try{
@@ -290,26 +327,36 @@ async function loadData(){
     const snap=await res.json();
     document.getElementById('upd-lbl').textContent=snap.updated||'—';
     document.getElementById('status-txt').textContent=`Data loaded · ${snap.updated} · Yahoo Finance`;
+
     const eb=document.getElementById('eq-body');
     eb.innerHTML='';
+
     (snap.groups||[]).forEach(g=>{
-      const inner=buildGroupHTML(g);
-      const wrapper=document.createElement('div');
-      wrapper.className='grp';
-      wrapper.innerHTML=inner;
+      const html=buildGroupHTML(g);
       if(g.section==='macro'){
-        const tid=MACRO_LAYOUT[g.id];
-        if(tid)document.getElementById(tid).appendChild(wrapper);
+        const cellId=MACRO_MAP[g.id];
+        if(cellId){
+          // Insert directly into the pre-made cell — no extra wrapper div
+          const cell=document.getElementById(cellId);
+          if(cell) cell.innerHTML=html;
+        }
       } else {
+        const wrapper=document.createElement('div');
+        wrapper.className='grp';
+        wrapper.innerHTML=html;
         eb.appendChild(wrapper);
       }
     });
+
+    // Breadth
     const bg=document.getElementById('brd-grid');
     bg.innerHTML='';
     (snap.breadth||[]).forEach(b=>{
       const fc=b.pct>55?'g':b.pct<35?'r':'o';
       bg.innerHTML+=`<div class="brd-card"><div class="brd-lbl">${b.label}</div><div class="brd-val ${b.dir}">${b.value}</div><div class="brd-sub">${b.sub}</div><div class="gauge"><div class="g-track"><div class="g-fill ${fc}" style="width:${b.pct}%"></div></div></div></div>`;
     });
+
+    // Ticker
     const items=[];
     (snap.groups||[]).slice(0,4).forEach(g=>g.rows.slice(0,3).forEach(r=>{
       if(r.price)items.push({n:r.label.split(' · ')[0],p:r.price,c:r.chg_1d,u:(r.chg_1d_raw||0)>=0});
@@ -317,6 +364,7 @@ async function loadData(){
     const track=document.getElementById('ticker');
     const doubled=[...items,...items];
     track.innerHTML=doubled.map(t=>`<span class="ti"><span class="n">${t.n}</span><span class="${t.u?'u':'d'}">${t.p}</span><span class="${t.u?'u':'d'}">${t.c||'—'}</span><span class="sep">|</span></span>`).join('');
+
   }catch(e){
     document.getElementById('status-txt').textContent='Could not load data — '+e.message;
   }
