@@ -273,7 +273,7 @@ def trend_arrow(pct_1w):
     return "→"
 
 
-def bars_array(history_closes):
+def spark_points(closes, n=20):
     """Return list of 5 ints: +1 / -1 / 0 for the last 5 daily candles."""
     if not history_closes or len(history_closes) < 2:
         return [0, 0, 0, 0, 0]
