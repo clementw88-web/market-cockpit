@@ -307,8 +307,8 @@ def fetch_single(tk, is_yield=False):
             raise ValueError("Empty history")
 
         # Handle both flat and MultiIndex columns
-        if isinstance(hist.columns, pd.MultiIndex):
-            closes_series = hist["Close"][tk].dropna()
+        if hasattr(hist.columns, "levels"):
+            closes_series = hist["Close"].dropna()
         else:
             closes_series = hist["Close"].dropna()
 
