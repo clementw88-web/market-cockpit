@@ -308,9 +308,9 @@ def fetch_single(tk, is_yield=False):
 
         # Handle both flat and MultiIndex columns
         if hasattr(hist.columns, "levels"):
-            closes_series = hist["Close"].dropna()
+            closes_series = hist["Close"].squeeze().dropna()
         else:
-            closes_series = hist["Close"].dropna()
+            closes_series = hist["Close"].squeeze().dropna()
 
         closes     = closes_series.tolist()
         closes_idx = closes_series.index.tolist()
